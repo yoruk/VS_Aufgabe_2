@@ -1,0 +1,91 @@
+\section{Sending Messages}
+\label{Sec::Send}
+
+\begin{lstlisting}
+template<typename... Args>
+void send(actor whom, Args&&... what);
+\end{lstlisting}
+
+Messages can be sent by using the member function \lstinline^send^.
+The variadic template parameter pack \lstinline^what...^ is converted to a message and then enqueued to the mailbox of \lstinline^whom^.
+
+\begin{lstlisting}
+void some_fun(event_based_actor* self) {
+  actor other = spawn(...);
+  self->send(other, 1, 2, 3);
+  // sending a message directly is also ok:
+  auto msg = make_message(1, 2, 3);
+  self->send(other, msg);
+}
+\end{lstlisting}
+
+\clearpage
+\subsection{Replying to Messages}
+\label{Sec::Send::Reply}
+
+The return value of a message handler is used as response message.
+Actors can also use the result of a \lstinline^sync_send^ to answer to a request, as shown below.
+
+\begin{lstlisting}
+void client(event_based_actor* self, const actor& master) {
+  become (
+    on("foo", arg_match) >> [=](const string& request) {
+      return self->sync_send(master, atom("bar"), request).then(
+        [=](const std::string& response) {
+          return response;
+        }
+      );
+    }
+  );
+};
+\end{lstlisting}
+
+\subsection{Delaying Messages}
+
+Messages can be delayed, e.g., to implement time-based polling strategies, by using one of \lstinline^delayed_send^, \lstinline^delayed_send_tuple^, \lstinline^delayed_reply^, or \lstinline^delayed_reply_tuple^.
+The following example illustrates a polling strategy using \lstinline^delayed_send^.
+
+\begin{lstlisting}
+behavior poller(event_based_actor* self) {
+  self->delayed_send(self, std::chrono::seconds(1), atom("poll"));
+  return {
+    on(atom("poll")) >> [] {
+      // poll a resource
+      // ...
+      // schedule next polling
+      self->delayed_send(self, std::chrono::seconds(1), atom("poll"));
+    }
+  };
+}
+\end{lstlisting}
+
+\clearpage
+\subsection{Forwarding Messages in Untyped Actors}
+
+The member function \lstinline^forward_to^ forwards the last dequeued message to an other actor.
+Forwarding a synchronous message will also transfer responsibility for the request, i.e., the receiver of the forwarded message can reply as usual and the original sender of the message will receive the response.
+The following diagram illustrates forwarding of a synchronous message from actor \texttt{B} to actor \texttt{C}.
+
+\begin{footnotesize}
+\begin{verbatim}
+               A                  B                  C
+               |                  |                  |
+               | --(sync_send)--> |                  |
+               |                  | --(forward_to)-> |
+               |                  X                  |---\
+               |                                     |   | compute
+               |                                     |   | result
+               |                                     |<--/
+               | <-------------(reply)-------------- |
+               |                                     X
+               |---\
+               |   | handle
+               |   | response
+               |<--/
+               |
+               X
+\end{verbatim}
+\end{footnotesize}
+
+The forwarding is completely transparent to actor \texttt{C}, since it will see actor \texttt{A} as sender of the message.
+However, actor \texttt{A} will see actor \texttt{C} as sender of the response message instead of actor \texttt{B} and thus could recognize the forwarding by evaluating \lstinline^self->last_sender()^.

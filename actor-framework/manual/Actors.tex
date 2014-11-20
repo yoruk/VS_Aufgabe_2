@@ -1,0 +1,65 @@
+\section{Actors}
+
+\lib provides several actor implementations, each covering a particular use case.
+The class \lstinline^local_actor^ is the base class for all implementations, except for (remote) proxy actors.
+Hence, \lstinline^local_actor^ provides a common interface for actor operations like trapping exit messages or finishing execution.
+The default actor implementation in \lib is event-based.
+Event-based actors have a very small memory footprint and are thus very lightweight and scalable.
+Context-switching actors are used for actors that make use of the blocking API (see Section \ref{Sec::BlockingAPI}), but do not need to run in a separate thread.
+Context-switching and event-based actors are scheduled cooperatively in a thread pool.
+Thread-mapped actors can be used to opt-out of this cooperative scheduling.
+
+\subsection{Implicit \texttt{self} Pointer}
+
+When using a function or functor to implement an actor, the first argument \emph{can} be used to capture a pointer to the actor itself.
+The type of this pointer is \lstinline^event_based_actor*^ per default and \lstinline^blocking_actor*^ when using the \lstinline^blocking_api^ flag.
+When dealing with typed actors, the types are \lstinline^typed_event_based_actor<...>*^ and \lstinline^typed_blocking_actor<...>*^.
+
+\clearpage
+\subsection{Interface}
+
+\begin{lstlisting}
+class local_actor;
+\end{lstlisting}
+
+{\small
+\begin{tabular*}{\textwidth}{m{0.45\textwidth}m{0.5\textwidth}}
+  \multicolumn{2}{m{\linewidth}}{\large{\textbf{Member functions}}\vspace{3pt}} \\
+  \\
+  \hline
+  \lstinline^quit(uint32_t reason = normal)^ & Finishes execution of this actor \\
+  \hline
+  \\
+  \multicolumn{2}{l}{\textbf{Observers}\vspace{3pt}} \\
+  \hline
+  \lstinline^bool trap_exit()^ & Checks whether this actor traps exit messages \\
+  \hline
+  \lstinline^message last_dequeued()^ & Returns the last message that was dequeued from the actor's mailbox\newline\textbf{Note}: Only set during callback invocation \\
+  \hline
+  \lstinline^actor_addr last_sender()^ & Returns the sender of the last dequeued message\newline\textbf{Note}: Only set during callback invocation \\
+  \hline
+  \lstinline^vector<group> joined_groups()^ & Returns all subscribed groups \\
+  \hline
+  \\
+  \multicolumn{2}{l}{\textbf{Modifiers}\vspace{3pt}} \\
+  \hline
+  \lstinline^void trap_exit(bool enabled)^ & Enables or disables trapping of exit messages \\
+  \hline
+  \lstinline^void join(const group& g)^ & Subscribes to group \lstinline^g^ \\
+  \hline
+  \lstinline^void leave(const group& g)^ & Unsubscribes group \lstinline^g^ \\
+  \hline
+  \lstinline^void on_sync_failure(auto fun)^ & Sets a handler, i.e., a functor taking no arguments, for unexpected synchronous response messages (default action is to kill the actor for reason \lstinline^unhandled_sync_failure^) \\
+  \hline
+  \lstinline^void on_sync_timeout(auto fun)^ & Sets a handler, i.e., a functor taking no arguments, for \lstinline^timed_sync_send^ timeout messages (default action is to kill the actor for reason \lstinline^unhandled_sync_timeout^) \\
+  \hline
+  \lstinline^void monitor(actor whom)^ & Adds a unidirectional monitor to \lstinline^whom^ (see Section \ref{Sec::Management::Monitors}) \\
+  \hline
+  \lstinline^void demonitor(actor whom)^ & Removes a monitor from \lstinline^whom^ \\
+  \hline
+  \lstinline^bool has_sync_failure_handler()^ & Checks wheter this actor has a user-defined sync failure handler \\
+  \hline
+  \lstinline^template <class F>^ \lstinline^void set_exception_handler(F f)^ & Sets a custom handler for uncaught exceptions \\
+  \hline
+\end{tabular*}
+}

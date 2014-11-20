@@ -1,0 +1,108 @@
+\section{Synchronous Communication}
+\label{Sec::Sync}
+
+\lib supports both asynchronous and synchronous communication.
+The member functions \lstinline^sync_send^ and \lstinline^sync_send_tuple^ send synchronous request messages.
+
+\begin{lstlisting}
+template<typename... Args>
+__unspecified__ sync_send(actor whom, Args&&... what);
+
+__unspecified__ sync_send_tuple(actor whom, message what);
+
+template<typename Duration, typename... Args>
+__unspecified__ timed_sync_send(actor whom,
+                                Duration timeout,
+                                Args&&... what);
+
+template<typename Duration, typename... Args>
+__unspecified__ timed_sync_send_tuple(actor whom,
+                                      Duration timeout,
+                                      message what);
+\end{lstlisting}
+
+A synchronous message is sent to the receiving actor's mailbox like any other asynchronous message.
+The response message, on the other hand, is treated separately.
+
+The difference between \lstinline^sync_send^ and \lstinline^timed_sync_send^ is how timeouts are handled.
+The behavior of \lstinline^sync_send^ is analogous to \lstinline^send^, i.e., timeouts are specified by using \lstinline^after(...)^ statements (see \ref{Sec::Receive::Timeouts}).
+When using \lstinline^timed_sync_send^ function, \lstinline^after(...)^ statements are ignored and the actor will receive a \lstinline^sync_timeout_msg^ after the given duration instead.
+
+\subsection{Error Messages}
+
+When using synchronous messaging, \lib's runtime environment will send ...
+
+\begin{itemize}
+\item if the receiver is not alive:\newline\lstinline^sync_exited_msg { actor_addr source; std::uint32_t reason; };^
+%\item \lstinline^{'VOID'}^ if the receiver handled the message but did not respond to it
+\item if a message send by \lstinline^timed_sync_send^ timed out: \lstinline^sync_timeout_msg^
+\end{itemize}
+
+\clearpage
+\subsection{Receive Response Messages}
+
+When sending a synchronous message, the response handler can be passed by either using \lstinline^then^ (event-based actors) or \lstinline^await^ (blocking actors).
+
+\begin{lstlisting}
+void foo(event_based_actor* self, actor testee) {
+  // testee replies with a string to 'get'
+  self->sync_send(testee, atom("get")).then(
+    [=](const std::string& str) {
+      // handle str
+    },
+    after(std::chrono::seconds(30)) >> [=]() {
+      // handle error
+    }
+  );
+);
+\end{lstlisting}
+
+Similar to \lstinline^become^, the \lstinline^then^ function modifies an actor's behavior stack.
+However, it is used as ``one-shot handler'' and automatically returns to the previous behavior afterwards.
+
+\subsection{Synchronous Failures and Error Handlers}
+
+An unexpected response message, i.e., a message that is not handled by given behavior, will invoke the actor's \lstinline^on_sync_failure^ handler.
+The default handler kills the actor by calling \lstinline^self->quit(exit_reason::unhandled_sync_failure)^.
+The handler can be overridden by calling \lstinline^self->on_sync_failure(/*...*/)^.
+
+Unhandled timeout messages trigger the \lstinline^on_sync_timeout^ handler.
+The default handler kills the actor for reason \lstinline^exit_reason::unhandled_sync_failure^.
+It is possible set both error handlers by calling \lstinline^self->on_sync_timeout_or_failure(/*...*)^.
+
+\begin{lstlisting}
+void foo(event_based_actor* self, actor testee) {
+  // testee replies with a string to 'get'
+  // set handler for unexpected messages
+  self->on_sync_failure = [] {
+    aout << "received: " << to_string(self->last_dequeued()) << endl;
+  };
+  // set handler for timeouts
+  self->on_sync_timeout = [] {
+    aout << "timeout occured" << endl;
+  };
+  // set response handler by using "then"
+  timed_sync_send(testee, std::chrono::seconds(30), atom("get")).then(
+    [=](const std::string& str) { /* handle str */ }
+  );
+\end{lstlisting}
+
+\clearpage
+\subsubsection{Continuations for Event-based Actors}
+
+\lib supports continuations to enable chaining of send/receive statements.
+The functions \lstinline^then^ returns a helper object offering the member function \lstinline^continue_with^, which takes a functor $f$ without arguments.
+After receiving a message, $f$ is invoked if and only if the received messages was handled successfully, i.e., neither \lstinline^sync_failure^ nor \lstinline^sync_timeout^ occurred.
+
+\begin{lstlisting}
+void foo(event_based_actor* self) {
+  actor d_or_s = ...; // replies with either a double or a string
+  sync_send(d_or_s, atom("get")).then(
+    [=](double value) { /* functor f1 */ },
+    [=](const string& value) { /* functor f2*/ }
+  ).continue_with([=] {
+    // this continuation is invoked in both cases
+    // *after* f1 or f2 is done, but *not* in case
+    // of sync_failure or sync_timeout
+  });
+\end{lstlisting}
