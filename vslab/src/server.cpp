@@ -5,10 +5,10 @@
  *      Author: Eugen Winter, Michael Schmidt
  */
 
-#include "master.hpp"
+#include "server.hpp"
 
-Master::Master() {
+Server::Server() {
 }
 
-Master::~Master() {
+Server::~Server() {
 }

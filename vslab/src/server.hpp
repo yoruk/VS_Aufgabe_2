@@ -5,17 +5,17 @@
  *      Author: Eugen Winter, Michael Schmidt
  */
 
-#ifndef SRC_MASTER_HPP_
-#define SRC_MASTER_HPP_
+#ifndef SRC_SERVER_HPP_
+#define SRC_SERVER_HPP_
 
-class Master {
+class Server {
 
 public:
-    Master();
-    ~Master();
+    Server();
+    ~Server();
 
 private:
 
 };
 
-#endif /* SRC_MASTER_HPP_ */
+#endif /* SRC_SERVER_HPP_ */
