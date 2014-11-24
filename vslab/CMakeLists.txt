@@ -30,7 +30,8 @@ include_directories(. include  ${CMAKE_CURRENT_SOURCE_DIR}/third_party ${LIBCAF_
 set(SOURCES
     src/main.cpp)
 
-file(GLOB HEADERS "include/*.hpp")
+file(GLOB HEADERS "include/*.hpp" "src/*.hpp")
+file(GLOB SOURCES "src/*.cpp")
 
 add_executable(vslab ${SOURCES} ${HEADERS})
 target_link_libraries(vslab ${CMAKE_DL_LIBS} ${LIBCAF_LIBRARIES})
