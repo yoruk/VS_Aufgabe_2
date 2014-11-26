@@ -102,20 +102,29 @@ void manager(event_based_actor* self, long workers, const string& host, long por
     );
 }
 
-behavior client(event_based_actor* self) {
-  // return the (initial) actor behavior
-  return {
-    // a handler for messages containing a single string
-    // that replies with a string
-    [=](const string& what) -> string {
-      // prints "Hello World!" via aout (thread-safe cout wrapper)
-      aout(self) << what << endl;
-      // terminates this actor ('become' otherwise loops forever)
-      self->quit();
-      // reply "!dlroW olleH"
-      return string(what.rbegin(), what.rend());
+void client(event_based_actor* self, const string& host, long port, int512_t n, const actor& server) {
+    aout(self) << "client: client()" << endl;
+
+    // connect to server if needed
+    if (!server) {
+        aout(self) << "client: trying to connect to: " << host << ":" << port << endl;
+
+        try {
+            auto new_serv = io::remote_actor(host, port);
+            self->monitor(new_serv);
+            aout(self) << "client: reconnection to server succeeded" << endl;
+        } catch (exception&) {
+            aout(self) << "client: connection to server failed, quitting" << endl;
+            self->quit();
+            //self->delayed_send(self, chrono::seconds(3), atom("reconnect"));
+        }
     }
-  };
+
+    self->become (
+        on(atom("quit")) >> [=] {
+            self->quit();
+        }
+    );
 }
 
 void worker(event_based_actor* self) {
@@ -149,7 +158,14 @@ void run_manager(long workers, const string& host, long port) {
 }
 
 void run_client(const string& host, long port) {
-    cout << "run_client: implement me" << endl;
+    int512_t n;
+
+    cout << "run_client(), " << " server_address: " << host << " server_port: " << port << endl;
+
+    cout << "### Client Input: ####\n\nPlease enter the number to calculate : ";
+    cin >> n;
+
+    spawn(client, host, port, n, invalid_actor);
 }
 
 // projection: string => long
