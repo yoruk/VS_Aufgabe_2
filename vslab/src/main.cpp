@@ -33,12 +33,119 @@ inline bool is_probable_prime(const int512_t& value) {
     return miller_rabin_test(value, 25);
 }
 
+void server(event_based_actor* self);
+void manager(event_based_actor* self, long workers, const string& host, long port, const actor& server);
+void worker(event_based_actor* self);
+
+void server(event_based_actor* self) {
+    aout(self) << "server: server()" << endl;
+
+    self->become (
+        on(atom("quit")) >> [=] {
+            self->quit();
+        }
+    );
+
+    //self->quit();
+}
+
+void manager(event_based_actor* self, long workers, const string& host, long port, const actor& server) {
+    aout(self) << "manager: manager()" << endl;
+
+    auto grp = group::get("local", "tolle worker");
+    self->join(grp);
+
+    // connect to server if needed
+    if (!server) {
+        aout(self) << "manager: trying to connect to: " << host << ":" << port << endl;
+
+        try {
+            auto new_serv = io::remote_actor(host, port);
+            self->monitor(new_serv);
+            aout(self) << "manager: reconnection to server succeeded" << endl;
+            self->sync_send(self, atom("sWorkers"));
+        } catch (exception&) {
+            aout(self) << "manager: connection to server failed, quitting" << endl;
+            self->quit();
+            //self->delayed_send(self, chrono::seconds(3), atom("reconnect"));
+        }
+    }
+
+    self->become (
+        on(atom("reconnect")) >> [=] {
+            aout(self) << "manager: trying to reconnect" << endl;
+            manager(self, workers, host, port, invalid_actor);
+        },
+        on(atom("sWorkers")) >> [=] {
+            aout(self) << "manager: spawning workers: " << workers << endl;
+            //self->delayed_send(self, chrono::seconds(3), atom("sWorkers"));
+
+            int i;
+            for(i=0; i<workers; i++) {
+                spawn_in_group(grp, worker);
+            }
+
+        },
+        on(atom("kWorkers")) >> [=] {
+            aout(self) << "manager: killing workers: " << workers << endl;
+
+            // hier worker killen
+            int i;
+            for(i=0; i<workers; i++) {
+                self->send(grp, atom("suicide"));
+            }
+
+        },
+        on(atom("quit")) >> [=] {
+            self->quit();
+        }
+    );
+}
+
+behavior client(event_based_actor* self) {
+  // return the (initial) actor behavior
+  return {
+    // a handler for messages containing a single string
+    // that replies with a string
+    [=](const string& what) -> string {
+      // prints "Hello World!" via aout (thread-safe cout wrapper)
+      aout(self) << what << endl;
+      // terminates this actor ('become' otherwise loops forever)
+      self->quit();
+      // reply "!dlroW olleH"
+      return string(what.rbegin(), what.rend());
+    }
+  };
+}
+
+void worker(event_based_actor* self) {
+    aout(self) << "worker: worker()" << endl;
+
+    self->become (
+        on(atom("suicide")) >> [=] {
+            aout(self) << "worker: ARGH!!! " << endl;
+            self->quit();
+        }
+    );
+}
+
 void run_server(long port) {
-    cout << "run_server: implement me" << endl;
+    cout << "run_server(), using port: " << port << endl;
+
+    try {
+        // try to publish server actor at given port
+        io::publish(spawn(server), port);
+    } catch (exception& e) {
+        cerr << "*** unable to publish server actor at port " << port << "\n"
+             << to_verbose_string(e) // prints exception type and e.what()
+             << endl;
+    }
 }
 
 void run_manager(long workers, const string& host, long port) {
-    cout << "run_manager: implement me" << endl;
+    cout << "run_manager(), num_workers: " << workers << " server_address: " << host << " server_port: " << port << endl;
+
+    spawn(manager, workers, host, port, invalid_actor);
 }
 
 void run_client(const string& host, long port) {
@@ -94,5 +201,5 @@ int main(int argc, char** argv) {
 	await_all_actors_done();
 	shutdown();
 
-	return 0;
+    return 0;
 }
