@@ -42,11 +42,19 @@ void server(event_based_actor* self) {
 
     self->become (
         on(atom("quit")) >> [=] {
+            aout(self) << "server: got quit message -> quitting! " << endl;
             self->quit();
-        }
-    );
+        },
+        on(atom("ping"), arg_match) >> [=] (actor w) -> message {
+            aout(self) << "server: PONG! " << endl;
+            aout(self) << "server: sending PING! " << endl;
 
-    //self->quit();
+            return make_message(atom("ping"));
+        }
+//        others() >> [=] {
+//            aout(self) << to_string(self->last_dequeued()) << endl;
+//        }
+    );
 }
 
 void manager(event_based_actor* self, long workers, const string& host, long port, const actor& server) {
@@ -63,22 +71,18 @@ void manager(event_based_actor* self, long workers, const string& host, long por
             auto new_serv = io::remote_actor(host, port);
             self->monitor(new_serv);
             aout(self) << "manager: reconnection to server succeeded" << endl;
-            self->sync_send(self, atom("sWorkers"));
+            self->send(self, atom("sWorkers"));
+            manager(self, workers, host, port, new_serv);
+            return;
         } catch (exception&) {
             aout(self) << "manager: connection to server failed, quitting" << endl;
             self->quit();
-            //self->delayed_send(self, chrono::seconds(3), atom("reconnect"));
         }
     }
 
     self->become (
-        on(atom("reconnect")) >> [=] {
-            aout(self) << "manager: trying to reconnect" << endl;
-            manager(self, workers, host, port, invalid_actor);
-        },
         on(atom("sWorkers")) >> [=] {
             aout(self) << "manager: spawning workers: " << workers << endl;
-            //self->delayed_send(self, chrono::seconds(3), atom("sWorkers"));
 
             int i;
             for(i=0; i<workers; i++) {
@@ -89,7 +93,6 @@ void manager(event_based_actor* self, long workers, const string& host, long por
         on(atom("kWorkers")) >> [=] {
             aout(self) << "manager: killing workers: " << workers << endl;
 
-            // hier worker killen
             int i;
             for(i=0; i<workers; i++) {
                 self->send(grp, atom("suicide"));
@@ -97,6 +100,7 @@ void manager(event_based_actor* self, long workers, const string& host, long por
 
         },
         on(atom("quit")) >> [=] {
+            aout(self) << "manager: got quit message -> quitting! " << endl;
             self->quit();
         }
     );
@@ -113,17 +117,29 @@ void client(event_based_actor* self, const string& host, long port, int512_t n, 
             auto new_serv = io::remote_actor(host, port);
             self->monitor(new_serv);
             aout(self) << "client: reconnection to server succeeded" << endl;
+            client(self, host, port, n, new_serv);
+            return;
         } catch (exception&) {
             aout(self) << "client: connection to server failed, quitting" << endl;
             self->quit();
-            //self->delayed_send(self, chrono::seconds(3), atom("reconnect"));
         }
     }
 
     self->become (
         on(atom("quit")) >> [=] {
+            aout(self) << "client: got quit message -> quitting! " << endl;
             self->quit();
+        },
+        on(atom("ping")) >> [=] {
+            aout(self) << "client: PONG! " << endl;
+            aout(self) << "client: sending PING! " << endl;
+
+            self->send(server, atom("ping"), self);
         }
+//        others() >> [=] {
+//            aout(self) << to_string(self->last_dequeued()) << endl;
+//            aout(self) << "client: others() " << endl;
+//        }
     );
 }
 
@@ -132,6 +148,7 @@ void worker(event_based_actor* self) {
 
     self->become (
         on(atom("suicide")) >> [=] {
+            aout(self) << "worker: got suicide message -> ARGH!!! " << endl;
             aout(self) << "worker: ARGH!!! " << endl;
             self->quit();
         }
@@ -165,7 +182,8 @@ void run_client(const string& host, long port) {
     cout << "### Client Input: ####\n\nPlease enter the number to calculate : ";
     cin >> n;
 
-    spawn(client, host, port, n, invalid_actor);
+    auto client_handle = spawn(client, host, port, n, invalid_actor);
+    anon_send(client_handle, atom("ping"));
 }
 
 // projection: string => long
