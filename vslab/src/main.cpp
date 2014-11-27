@@ -17,6 +17,10 @@
 #include "caf/all.hpp"
 #include "caf/io/all.hpp"
 
+#define CLIENT_GROUP_NAME "clientgroup"
+#define MANAGER_GROUP_NAME "managergroup"
+#define WORKER_GROUP_NAME "workergroup"
+
 //using std::cout;
 //using std::endl;
 //using std::vector;
@@ -33,60 +37,91 @@ inline bool is_probable_prime(const int512_t& value) {
     return miller_rabin_test(value, 25);
 }
 
-void server(event_based_actor* self);
-void manager(event_based_actor* self, long workers, const string& host, long port, const actor& server);
+void server(event_based_actor* self, long port);
+void manager(event_based_actor* self, long workers, const string& host, long port, const group& server);
 void worker(event_based_actor* self);
 
-void server(event_based_actor* self) {
+void server(event_based_actor* self, long port) {
     aout(self) << "server: server()" << endl;
 
+    group clnt_grp;
+    group mngr_grp;
+
+    try {
+        clnt_grp = group::get("local", CLIENT_GROUP_NAME);
+        self->join(clnt_grp);
+        mngr_grp = group::get("local", MANAGER_GROUP_NAME);
+        self->join(mngr_grp);
+        io::publish_local_groups(port);
+    } catch (exception& e) {
+        cerr << to_verbose_string(e) // prints exception type and e.what()
+             << endl;
+    }
+
     self->become (
+        on(atom("srvping")) >> [=] {
+            aout(self) << "Server: got PING! " << endl;
+            aout(self) << "Server: sending PING! " << endl;
+
+            self->send(mngr_grp, atom("mngrping"));
+        },
         on(atom("quit")) >> [=] {
             aout(self) << "server: got quit message -> quitting! " << endl;
             self->quit();
-        },
-        on(atom("ping"), arg_match) >> [=] (actor w) -> message {
-            aout(self) << "server: PONG! " << endl;
-            aout(self) << "server: sending PING! " << endl;
-
-            return make_message(atom("ping"));
         }
+//        on(atom("ping"), arg_match) >> [=] (actor w) -> message {
+//            aout(self) << "server: got PING! " << endl;
+//            aout(self) << "server: sending PING! " << endl;
+
+//            return make_message(atom("ping"));
+//        }
 //        others() >> [=] {
 //            aout(self) << to_string(self->last_dequeued()) << endl;
 //        }
     );
 }
 
-void manager(event_based_actor* self, long workers, const string& host, long port, const actor& server) {
+void manager(event_based_actor* self, long workers, const string& host, long port, const group& server) {
     aout(self) << "manager: manager()" << endl;
 
-    auto grp = group::get("local", "tolle worker");
-    self->join(grp);
+    std::ostringstream group_addr;
+    group_addr << MANAGER_GROUP_NAME << "@" << host << ":" << port;
+
+    //test
+    group wkr_grp = group::get("local", WORKER_GROUP_NAME);
+    self->join(wkr_grp);
 
     // connect to server if needed
     if (!server) {
         aout(self) << "manager: trying to connect to: " << host << ":" << port << endl;
 
         try {
-            auto new_serv = io::remote_actor(host, port);
-            self->monitor(new_serv);
-            aout(self) << "manager: reconnection to server succeeded" << endl;
+            //auto new_serv = io::remote_actor(host, port);
+            //self->monitor(new_serv);
+            group new_serv = io::remote_group(group_addr.str());
+            aout(self) << "manager: connection to server succeeded" << endl;
             self->send(self, atom("sWorkers"));
             manager(self, workers, host, port, new_serv);
             return;
         } catch (exception&) {
-            aout(self) << "manager: connection to server failed, quitting" << endl;
+            aout(self) << "manager: connection to server failed -> quitting" << endl;
             self->quit();
         }
     }
 
     self->become (
+        on(atom("mngrping")) >> [=] {
+            aout(self) << "Manager: got PING! " << endl;
+            aout(self) << "Manager: sending PING! " << endl;
+
+            self->send(wkr_grp, atom("wkrping"));
+        },
         on(atom("sWorkers")) >> [=] {
             aout(self) << "manager: spawning workers: " << workers << endl;
 
             int i;
             for(i=0; i<workers; i++) {
-                spawn_in_group(grp, worker);
+                spawn_in_group(wkr_grp, worker);
             }
 
         },
@@ -95,32 +130,40 @@ void manager(event_based_actor* self, long workers, const string& host, long por
 
             int i;
             for(i=0; i<workers; i++) {
-                self->send(grp, atom("suicide"));
+                self->send(wkr_grp, atom("suicide"));
             }
 
         },
         on(atom("quit")) >> [=] {
             aout(self) << "manager: got quit message -> quitting! " << endl;
             self->quit();
+        },
+        others() >> [=] {
+            aout(self) << to_string(self->last_dequeued()) << endl;
         }
     );
 }
 
-void client(event_based_actor* self, const string& host, long port, int512_t n, const actor& server) {
+void client(event_based_actor* self, const string& host, long port, int512_t n, const group& server) {
     aout(self) << "client: client()" << endl;
+
+    std::ostringstream group_addr;
+    group_addr << CLIENT_GROUP_NAME << "@" << host << ":" << port;
 
     // connect to server if needed
     if (!server) {
         aout(self) << "client: trying to connect to: " << host << ":" << port << endl;
 
         try {
-            auto new_serv = io::remote_actor(host, port);
-            self->monitor(new_serv);
-            aout(self) << "client: reconnection to server succeeded" << endl;
+            //auto new_serv = io::remote_actor(host, port);
+            //self->monitor(new_serv);
+            //auto new_serv = group::get("remote", "clientgroup@localhost:6667");
+            group new_serv = io::remote_group(group_addr.str());
+            aout(self) << "client: connection to server succeeded" << endl;
             client(self, host, port, n, new_serv);
             return;
         } catch (exception&) {
-            aout(self) << "client: connection to server failed, quitting" << endl;
+            aout(self) << "client: connection to server failed -> quitting" << endl;
             self->quit();
         }
     }
@@ -131,15 +174,11 @@ void client(event_based_actor* self, const string& host, long port, int512_t n, 
             self->quit();
         },
         on(atom("ping")) >> [=] {
-            aout(self) << "client: PONG! " << endl;
+            aout(self) << "client: got PING! " << endl;
             aout(self) << "client: sending PING! " << endl;
 
-            self->send(server, atom("ping"), self);
+            self->send(server, atom("srvping"));
         }
-//        others() >> [=] {
-//            aout(self) << to_string(self->last_dequeued()) << endl;
-//            aout(self) << "client: others() " << endl;
-//        }
     );
 }
 
@@ -151,6 +190,12 @@ void worker(event_based_actor* self) {
             aout(self) << "worker: got suicide message -> ARGH!!! " << endl;
             aout(self) << "worker: ARGH!!! " << endl;
             self->quit();
+        },
+        on(atom("ping"), arg_match) >> [=] (actor w) -> message {
+            aout(self) << "server: got PING! " << endl;
+            aout(self) << "server: sending PONG! " << endl;
+
+            return make_message(atom("pong"));
         }
     );
 }
@@ -158,20 +203,22 @@ void worker(event_based_actor* self) {
 void run_server(long port) {
     cout << "run_server(), using port: " << port << endl;
 
-    try {
-        // try to publish server actor at given port
-        io::publish(spawn(server), port);
-    } catch (exception& e) {
-        cerr << "*** unable to publish server actor at port " << port << "\n"
-             << to_verbose_string(e) // prints exception type and e.what()
-             << endl;
-    }
+//    try {
+//        // try to publish server actor at given port
+//        io::publish(spawn(server, port), port);
+//    } catch (exception& e) {
+//        cerr << "run_server: unable to publish server actor at port " << port << "\n"
+//             << to_verbose_string(e) // prints exception type and e.what()
+//             << endl;
+//    }
+
+    spawn(server, port);
 }
 
 void run_manager(long workers, const string& host, long port) {
     cout << "run_manager(), num_workers: " << workers << " server_address: " << host << " server_port: " << port << endl;
 
-    spawn(manager, workers, host, port, invalid_actor);
+    spawn(manager, workers, host, port, invalid_group);
 }
 
 void run_client(const string& host, long port) {
@@ -182,7 +229,7 @@ void run_client(const string& host, long port) {
     cout << "### Client Input: ####\n\nPlease enter the number to calculate : ";
     cin >> n;
 
-    auto client_handle = spawn(client, host, port, n, invalid_actor);
+    auto client_handle = spawn(client, host, port, n, invalid_group);
     anon_send(client_handle, atom("ping"));
 }
 
