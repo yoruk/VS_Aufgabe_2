@@ -95,6 +95,7 @@ void manager(event_based_actor* self, long workers, const string& host, long por
             //auto new_serv = io::remote_actor(host, port);
             //self->monitor(new_serv);
             group new_serv = io::remote_group(group_addr.str());
+            self->join(new_serv);
             aout(self) << "manager: connection to server succeeded" << endl;
             self->send(self, atom("sWorkers"));
             manager(self, workers, host, port, new_serv);
@@ -133,10 +134,10 @@ void manager(event_based_actor* self, long workers, const string& host, long por
         on(atom("quit")) >> [=] {
             aout(self) << "manager: got quit message -> quitting! " << endl;
             self->quit();
-        },
-        others() >> [=] {
-            aout(self) << to_string(self->last_dequeued()) << endl;
-        }
+        } //,
+//        others() >> [=] {
+//            aout(self) << to_string(self->last_dequeued()) << endl;
+//        }
     );
 }
 
@@ -155,6 +156,7 @@ void client(event_based_actor* self, const string& host, long port, int512_t n, 
             //self->monitor(new_serv);
             //auto new_serv = group::get("remote", "clientgroup@localhost:6667");
             group new_serv = io::remote_group(group_addr.str());
+            self->join(new_serv);
             aout(self) << "client: connection to server succeeded" << endl;
             client(self, host, port, n, new_serv);
             return;
@@ -174,10 +176,10 @@ void client(event_based_actor* self, const string& host, long port, int512_t n, 
             aout(self) << "client: sending PING! " << endl;
 
             self->send(server, atom("ping"));
-        },
-        others() >> [=] {
-            aout(self) << to_string(self->last_dequeued()) << endl;
-        }
+        } //,
+//        others() >> [=] {
+//            aout(self) << to_string(self->last_dequeued()) << endl;
+//        }
     );
 }
 
