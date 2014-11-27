@@ -17,9 +17,8 @@
 #include "caf/all.hpp"
 #include "caf/io/all.hpp"
 
-#define CLIENT_GROUP_NAME "clientgroup"
-#define MANAGER_GROUP_NAME "managergroup"
-#define WORKER_GROUP_NAME "workergroup"
+#define CLIENT_MANAGER_GROUP_NAME "cmgroup"
+#define WORKER_GROUP_NAME "wgroup"
 
 //using std::cout;
 //using std::endl;
@@ -44,14 +43,11 @@ void worker(event_based_actor* self);
 void server(event_based_actor* self, long port) {
     aout(self) << "server: server()" << endl;
 
-    group clnt_grp;
-    group mngr_grp;
+    group clnt_mngr_grp;
 
     try {
-        clnt_grp = group::get("local", CLIENT_GROUP_NAME);
-        self->join(clnt_grp);
-        mngr_grp = group::get("local", MANAGER_GROUP_NAME);
-        self->join(mngr_grp);
+        clnt_mngr_grp = group::get("local", CLIENT_MANAGER_GROUP_NAME);
+        self->join(clnt_mngr_grp);
         io::publish_local_groups(port);
     } catch (exception& e) {
         cerr << to_verbose_string(e) // prints exception type and e.what()
@@ -59,25 +55,25 @@ void server(event_based_actor* self, long port) {
     }
 
     self->become (
-        on(atom("srvping")) >> [=] {
-            aout(self) << "Server: got PING! " << endl;
-            aout(self) << "Server: sending PING! " << endl;
+//        on(atom("srvping")) >> [=] {
+//            aout(self) << "Server: got PING! " << endl;
+//            aout(self) << "Server: sending PING! " << endl;
 
-            self->send(mngr_grp, atom("mngrping"));
-        },
+//            self->send(clnt_grp, atom("clntping"));
+//        },
         on(atom("quit")) >> [=] {
             aout(self) << "server: got quit message -> quitting! " << endl;
             self->quit();
-        }
+        },
 //        on(atom("ping"), arg_match) >> [=] (actor w) -> message {
 //            aout(self) << "server: got PING! " << endl;
 //            aout(self) << "server: sending PING! " << endl;
 
 //            return make_message(atom("ping"));
 //        }
-//        others() >> [=] {
-//            aout(self) << to_string(self->last_dequeued()) << endl;
-//        }
+        others() >> [=] {
+            aout(self) << to_string(self->last_dequeued()) << endl;
+        }
     );
 }
 
@@ -85,7 +81,7 @@ void manager(event_based_actor* self, long workers, const string& host, long por
     aout(self) << "manager: manager()" << endl;
 
     std::ostringstream group_addr;
-    group_addr << MANAGER_GROUP_NAME << "@" << host << ":" << port;
+    group_addr << CLIENT_MANAGER_GROUP_NAME << "@" << host << ":" << port;
 
     //test
     group wkr_grp = group::get("local", WORKER_GROUP_NAME);
@@ -110,11 +106,11 @@ void manager(event_based_actor* self, long workers, const string& host, long por
     }
 
     self->become (
-        on(atom("mngrping")) >> [=] {
+        on(atom("ping")) >> [=] {
             aout(self) << "Manager: got PING! " << endl;
-            aout(self) << "Manager: sending PING! " << endl;
+            aout(self) << "Manager: sending PONG! " << endl;
 
-            self->send(wkr_grp, atom("wkrping"));
+            self->send(server, atom("pong"));
         },
         on(atom("sWorkers")) >> [=] {
             aout(self) << "manager: spawning workers: " << workers << endl;
@@ -148,7 +144,7 @@ void client(event_based_actor* self, const string& host, long port, int512_t n, 
     aout(self) << "client: client()" << endl;
 
     std::ostringstream group_addr;
-    group_addr << CLIENT_GROUP_NAME << "@" << host << ":" << port;
+    group_addr << CLIENT_MANAGER_GROUP_NAME << "@" << host << ":" << port;
 
     // connect to server if needed
     if (!server) {
@@ -173,11 +169,14 @@ void client(event_based_actor* self, const string& host, long port, int512_t n, 
             aout(self) << "client: got quit message -> quitting! " << endl;
             self->quit();
         },
-        on(atom("ping")) >> [=] {
-            aout(self) << "client: got PING! " << endl;
+        on(atom("pong")) >> [=] {
+            aout(self) << "client: got PONG! " << endl;
             aout(self) << "client: sending PING! " << endl;
 
-            self->send(server, atom("srvping"));
+            self->send(server, atom("ping"));
+        },
+        others() >> [=] {
+            aout(self) << to_string(self->last_dequeued()) << endl;
         }
     );
 }
@@ -201,6 +200,8 @@ void worker(event_based_actor* self) {
 }
 
 void run_server(long port) {
+    string line;
+
     cout << "run_server(), using port: " << port << endl;
 
 //    try {
@@ -212,7 +213,22 @@ void run_server(long port) {
 //             << endl;
 //    }
 
-    spawn(server, port);
+//    spawn(server, port);
+
+    try {
+        io::publish_local_groups(port);
+    } catch (exception& e) {
+        cerr << to_verbose_string(e) // prints exception type and e.what()
+        << endl;
+    }
+
+    while(getline(cin, line)) {
+        if (line == "quit") {
+           break;
+        } else {
+            cerr << "illegal command" << endl;
+        }
+    }
 }
 
 void run_manager(long workers, const string& host, long port) {
@@ -230,7 +246,7 @@ void run_client(const string& host, long port) {
     cin >> n;
 
     auto client_handle = spawn(client, host, port, n, invalid_group);
-    anon_send(client_handle, atom("ping"));
+    anon_send(client_handle, atom("pong"));
 }
 
 // projection: string => long
